@@ -2,25 +2,7 @@ const { cmd } = require("../command");
 const axios = require("axios");
 const cheerio = require("cheerio");
 
-function hasSinhala(text) {
-  return /[\u0D80-\u0DFF]/.test(text);
-}
-
-async function getEnglish(q) {
-  try {
-    const s = await axios.get(`https://api.lyrics.ovh/suggest/${encodeURIComponent(q)}`);
-    if (!s.data.data.length) return null;
-
-    const a = s.data.data[0].artist.name;
-    const t = s.data.data[0].title;
-
-    const l = await axios.get(`https://api.lyrics.ovh/v1/${a}/${t}`);
-
-    return { title: `${a} - ${t}`, lyrics: l.data.lyrics };
-  } catch {
-    return null;
-  }
-}
+/* ---------- SINHALA ---------- */
 
 async function getSinhala(q) {
   try {
@@ -38,10 +20,11 @@ async function getSinhala(q) {
 
     if (!lyrics) return null;
 
-    // basic clean
+    // clean junk
     lyrics = lyrics
       .replace(/https?:\/\/\S+/g, "")
-      .replace(/\b(Em|Dm|Am|G|C|D|F|B7|A7|E7|Bm)\b/g, "")
+      .replace(/\b(Em|Dm|Am|G|C|D|F|B7|A7|E7|Bm|Fm|C7)\b/g, "")
+      .replace(/INTRO|CHORUS|VERSE|Key:|Beat:|Posted by:|Lyrics:|Music:.*/gi, "")
       .replace(/\n{3,}/g, "\n\n");
 
     return { title, lyrics };
@@ -50,28 +33,40 @@ async function getSinhala(q) {
   }
 }
 
+/* ---------- ENGLISH ---------- */
+
+async function getEnglish(q) {
+  try {
+    const s = await axios.get(`https://api.lyrics.ovh/suggest/${encodeURIComponent(q)}`);
+    if (!s.data.data.length) return null;
+
+    const a = s.data.data[0].artist.name;
+    const t = s.data.data[0].title;
+
+    const l = await axios.get(`https://api.lyrics.ovh/v1/${encodeURIComponent(a)}/${encodeURIComponent(t)}`);
+
+    return { title: `${a} - ${t}`, lyrics: l.data.lyrics };
+  } catch {
+    return null;
+  }
+}
+
+/* ---------- SINHALA CMD ---------- */
+
 cmd({
-  pattern: "lyrics",
-  alias: ["l", "lyr"],
+  pattern: "lyr",
+  alias: ["lyrics", "l", "ly"],
   react: "🎼",
-  desc: "Lyrics search",
+  desc: "Sinhala lyrics only",
   category: "search",
   filename: __filename
 },
 async (conn, mek, m, { from, q, reply }) => {
   try {
-    if (!q) return reply("Enter a song name.");
+    if (!q) return reply("Enter Sinhala song name.");
 
-    let data;
-
-    if (hasSinhala(q)) {
-      data = await getSinhala(q);
-      if (!data) data = await getEnglish(q);
-    } else {
-      data = await getEnglish(q);
-    }
-
-    if (!data) return reply("Lyrics not found.");
+    const data = await getSinhala(q);
+    if (!data) return reply("Sinhala lyrics not found.");
 
     let msg = `*${data.title}*\n\n${data.lyrics}`;
 
@@ -82,6 +77,35 @@ async (conn, mek, m, { from, q, reply }) => {
 
   } catch (err) {
     console.log(err);
-    reply("Error fetching lyrics.");
+    reply("Error fetching Sinhala lyrics.");
+  }
+});
+
+/* ---------- ENGLISH CMD ---------- */
+
+cmd({
+  pattern: "lyren",
+  alias: ["len", "lyen", "lyricsen"],
+  desc: "English lyrics only",
+  category: "search",
+  filename: __filename
+},
+async (conn, mek, m, { from, q, reply }) => {
+  try {
+    if (!q) return reply("Enter English song name.");
+
+    const data = await getEnglish(q);
+    if (!data) return reply("English lyrics not found.");
+
+    let msg = `*${data.title}*\n\n${data.lyrics}`;
+
+    if (msg.length > 3500)
+      msg = msg.slice(0, 3500) + "\n\nToo long...";
+
+    await conn.sendMessage(from, { text: msg }, { quoted: mek });
+
+  } catch (err) {
+    console.log(err);
+    reply("Error fetching English lyrics.");
   }
 });
