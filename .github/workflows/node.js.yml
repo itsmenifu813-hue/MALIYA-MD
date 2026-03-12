@@ -10,8 +10,9 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}      # ✅ other plugins
-      GEMINI_API_KEY2: ${{ secrets.GEMINI_API_KEY2 }}    # ✅ only auto_msg plugin
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_API_KEY2: ${{ secrets.GEMINI_API_KEY2 }}
+      SESSION_ID: ${{ secrets.SESSION_ID }}
 
     strategy:
       matrix:
@@ -26,6 +27,11 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: "npm"
+
+      - name: Install Google Chrome and Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable libnss3 libatk-bridge2.0-0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2
 
       - name: Install Dependencies
         run: npm install
