@@ -470,18 +470,42 @@ async function connectToWA() {
     }
   });
 
-  /* ================= DELETE HANDLER (FIXED) ================= */
+  /* ================= DELETE & POLL HANDLER (FIXED) ================= */
   sock.ev.on("messages.update", async (updates) => {
-    if (!global.pluginHooks) return;
-
-    for (const plugin of global.pluginHooks) {
-      if (typeof plugin.onDelete === "function") {
-        try {
-          await plugin.onDelete(sock, updates);
-        } catch (e) {
-          console.log("AntiDelete onDelete error:", e?.message);
+    // ✅ 1. Handle Deletes (keep as-is)
+    if (global.pluginHooks) {
+      for (const plugin of global.pluginHooks) {
+        if (typeof plugin.onDelete === "function") {
+          try {
+            await plugin.onDelete(sock, updates);
+          } catch (e) {
+            console.log("AntiDelete onDelete error:", e?.message);
+          }
         }
       }
+    }
+
+    // ✅ 2. Handle Poll Clicks (For Button-like functionality)
+    for (const { key, update } of updates) {
+        if (update.pollUpdates && key.fromMe === false) {
+            try {
+                // Poll එකක යූසර් ක්ලික් කළ දේ body එකක් විදිහට අරන් autoMsgPlugin එකට යවනවා
+                const pollVote = update.pollUpdates[0].vote;
+                const pollName = pollVote.selectedOptions[0]; // ක්ලික් කළ Option එකේ නම
+                
+                if (autoMsgPlugin && typeof autoMsgPlugin.onMessage === "function") {
+                    await autoMsgPlugin.onMessage(sock, { key, message: {} }, {}, {
+                        from: key.remoteJid,
+                        body: pollName, // Option එක බොට්ට body එක විදිහට යයි
+                        isGroup: key.remoteJid.endsWith("@g.us"),
+                        sender: key.participant || key.remoteJid,
+                        reply: (text) => sock.sendMessage(key.remoteJid, { text }, { quoted: { key } })
+                    });
+                }
+            } catch (e) {
+                console.log("Poll handling error:", e.message);
+            }
+        }
     }
   });
 }
