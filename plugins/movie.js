@@ -1,12 +1,12 @@
-const { cmd, commands } = require("../command");
+const { cmd, replyHandlers } = require("../command");
 const puppeteer = require("puppeteer");
 
-// මේවා තාවකාලිකව දත්ත මතක තබා ගැනීමට භාවිතා කරයි
+// දත්ත තාවකාලිකව ගබඩා කිරීමට
 const pendingSearch = {};
 const pendingQuality = {};
 
 // -----------------------------
-// Quality Normalize
+// Helper Functions
 // -----------------------------
 function normalizeQuality(text) {
   if (!text) return "Unknown";
@@ -17,14 +17,8 @@ function normalizeQuality(text) {
   return text;
 }
 
-// -----------------------------
-// Helper Functions (Scrapers)
-// -----------------------------
 async function searchMovies(query) {
-  const browser = await puppeteer.launch({ 
-    headless: true, 
-    args: ["--no-sandbox", "--disable-setuid-sandbox"] 
-  });
+  const browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox"] });
   try {
     const page = await browser.newPage();
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
@@ -36,7 +30,6 @@ async function searchMovies(query) {
         title: box.querySelector("a")?.title?.trim() || "No Title",
         movieUrl: box.querySelector("a")?.href || "",
         thumb: box.querySelector("img")?.src || "",
-        language: box.querySelector(".language")?.textContent?.trim() || "Sinhala Sub",
       })).filter(m => m.movieUrl)
     );
   } finally {
@@ -49,9 +42,8 @@ async function getDirectDownloadLinks(movieUrl) {
   try {
     const page = await browser.newPage();
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-    
-    // Step 1: Movie Page
     await page.goto(movieUrl, { waitUntil: "networkidle2" });
+
     const linkItems = await page.$$eval('a[href*="/zt-links/"]', links => 
       links.map(link => {
         const text = link.closest('div')?.innerText || "";
@@ -64,12 +56,10 @@ async function getDirectDownloadLinks(movieUrl) {
     );
 
     let finalLinks = [];
-    // Step 2 & 3: ZT-Links to Sonic-Cloud
     for (const item of linkItems.slice(0, 3)) {
       try {
         await page.goto(item.url, { waitUntil: "networkidle2" });
         const finalPageUrl = await page.$eval('a.btn-danger, .download-btn', el => el.href).catch(() => null);
-        
         if (finalPageUrl) {
           await page.goto(finalPageUrl, { waitUntil: "networkidle2" });
           const directFileLink = await page.$eval('a[href*="sonic-cloud.online"]', el => el.href).catch(() => null);
@@ -86,10 +76,8 @@ async function getDirectDownloadLinks(movieUrl) {
 }
 
 // -----------------------------
-// MALIYA-MD Commands
+// Main Command
 // -----------------------------
-
-// 1. සෙවුම් විධානය (Search Command)
 cmd({
   pattern: "film",
   alias: ["movie", "cinesubz"],
@@ -97,80 +85,73 @@ cmd({
   react: "🎬",
   desc: "Cinesubz movie downloader",
   filename: __filename
-}, async (conn, mek, m, { from, q, sender, reply }) => {
-  try {
-    if (!q) return reply("අවශ්‍ය චිත්‍රපටයේ නම ඇතුළත් කරන්න. (උදා: .film Leo)");
+}, async (sock, mek, m, { from, q, sender, reply }) => {
+  if (!q) return reply("අවශ්‍ය චිත්‍රපටයේ නම ඇතුළත් කරන්න. (උදා: .film Leo)");
+  
+  reply("🔎 සොයමින් පවතී, කරුණාකර රැඳී සිටින්න...");
+  const results = await searchMovies(q);
+  if (results.length === 0) return reply("❌ කිසිවක් හමු වූයේ නැත.");
 
-    reply("🔎 සොයමින් පවතී, කරුණාකර රැඳී සිටින්න...");
-    const results = await searchMovies(q);
+  pendingSearch[sender] = { results, timestamp: Date.now() };
+
+  let msg = `🎬 *CINESUBZ MOVIE SEARCH*\n\n`;
+  results.forEach((res, i) => msg += `*${i + 1}.* ${res.title}\n`);
+  msg += `\n📥 *ලින්ක් ලබාගැනීමට අංකය Reply කරන්න.*`;
+
+  await sock.sendMessage(from, { image: { url: results[0].thumb }, caption: msg }, { quoted: mek });
+});
+
+// -----------------------------
+// Reply Handlers (Number Listeners)
+// -----------------------------
+
+// 1. චිත්‍රපටය තේරීම සඳහා
+replyHandlers.push({
+  filter: (body, { sender }) => {
+    return pendingSearch[sender] && !isNaN(body) && parseInt(body) <= pendingSearch[sender].results.length;
+  },
+  react: "⏳",
+  function: async (sock, mek, m, { from, body, sender, reply }) => {
+    const index = parseInt(body) - 1;
+    const selected = pendingSearch[sender].results[index];
+    delete pendingSearch[sender];
+
+    reply(`⏳ *${selected.title}* සඳහා Direct Links ලබාගනිමින් පවතී...`);
+    const links = await getDirectDownloadLinks(selected.movieUrl);
     
-    if (results.length === 0) return reply("❌ කිසිවක් හමු වූයේ නැත.");
+    if (links.length === 0) return reply("❌ Direct links සොයාගත නොහැකි විය.");
 
-    pendingSearch[sender] = { results, timestamp: Date.now() };
+    pendingQuality[sender] = { title: selected.title, links, timestamp: Date.now() };
 
-    let msg = `🎬 *MALIYA-MD MOVIE SEARCH*\n\n`;
-    results.forEach((res, i) => {
-      msg += `*${i + 1}.* ${res.title}\n`;
-    });
-    msg += `\n📥 *ලින්ක් ලබාගැනීමට අදාළ අංකය Reply කරන්න.*`;
-
-    await conn.sendMessage(from, { image: { url: results[0].thumb }, caption: msg }, { quoted: mek });
-  } catch (e) {
-    reply("Error: " + e.message);
+    let qMsg = `🎬 *${selected.title}*\n\n`;
+    links.forEach((l, i) => qMsg += `*${i + 1}.* ${l.quality} (${l.size})\n`);
+    qMsg += `\n📥 *ඩවුන්ලෝඩ් කිරීමට අංකය Reply කරන්න.*`;
+    
+    reply(qMsg);
   }
 });
 
-// 2. අංකය ලැබුණු පසු ක්‍රියාත්මක වන කොටස (Listen for Replies)
-conn.ev.on('messages.upsert', async (chatUpdate) => {
-  const m = chatUpdate.messages[chatUpdate.messages.length - 1];
-  if (!m.message || !m.message.extendedTextMessage) return;
-  
-  const from = m.key.remoteJid;
-  const sender = m.key.participant || m.key.remoteJid;
-  const text = m.message.extendedTextMessage.text;
-
-  // Selection for Movie
-  if (pendingSearch[sender] && !isNaN(text)) {
-    const index = parseInt(text) - 1;
-    const selected = pendingSearch[sender].results[index];
-    if (selected) {
-      delete pendingSearch[sender];
-      await conn.sendMessage(from, { text: `⏳ *${selected.title}* සඳහා Direct Links ලබාගනිමින් පවතී...` }, { quoted: m });
-      
-      const links = await getDirectDownloadLinks(selected.movieUrl);
-      if (links.length === 0) return conn.sendMessage(from, { text: "❌ Direct links සොයාගත නොහැකි විය." }, { quoted: m });
-
-      pendingQuality[sender] = { title: selected.title, links, timestamp: Date.now() };
-
-      let qMsg = `🎬 *${selected.title}*\n\n`;
-      links.forEach((l, i) => qMsg += `*${i + 1}.* ${l.quality} (${l.size})\n`);
-      qMsg += `\n📥 *ඩවුන්ලෝඩ් කිරීමට අංකය Reply කරන්න.*`;
-      
-      await conn.sendMessage(from, { text: qMsg }, { quoted: m });
-    }
-  }
-
-  // Selection for Quality & Sending File
-  else if (pendingQuality[sender] && !isNaN(text)) {
-    const index = parseInt(text) - 1;
+// 2. Quality එක තේරීම සහ File එක යැවීම සඳහා
+replyHandlers.push({
+  filter: (body, { sender }) => {
+    return pendingQuality[sender] && !isNaN(body) && parseInt(body) <= pendingQuality[sender].links.length;
+  },
+  react: "📤",
+  function: async (sock, mek, m, { from, body, sender, reply }) => {
+    const index = parseInt(body) - 1;
     const data = pendingQuality[sender];
     const selected = data.links[index];
-    
-    if (selected) {
-      delete pendingQuality[sender];
-      await conn.sendMessage(from, { react: { text: "⏳", key: m.key } });
-      
-      try {
-        await conn.sendMessage(from, {
-          document: { url: selected.link },
-          mimetype: "video/mp4",
-          fileName: `${data.title} (${selected.quality}).mp4`,
-          caption: `🎬 *${data.title}*\n⭐ Quality: ${selected.quality}\n\n*Enjoy! - Powered by MALIYA-MD*`
-        }, { quoted: m });
-        await conn.sendMessage(from, { react: { text: "✅", key: m.key } });
-      } catch (e) {
-        await conn.sendMessage(from, { text: "❌ ගොනුව එවීමේදී දෝෂයක් ඇතිවිය. ඩිරෙක්ට් ලින්ක් එක:\n" + selected.link }, { quoted: m });
-      }
+    delete pendingQuality[sender];
+
+    try {
+      await sock.sendMessage(from, {
+        document: { url: selected.link },
+        mimetype: "video/mp4",
+        fileName: `${data.title} (${selected.quality}).mp4`,
+        caption: `🎬 *${data.title}*\n⭐ Quality: ${selected.quality}\n\n*Powered by MALIYA-MD*`
+      }, { quoted: mek });
+    } catch (e) {
+      reply("❌ දෝෂයක් ඇතිවිය. Direct Link:\n" + selected.link);
     }
   }
 });
