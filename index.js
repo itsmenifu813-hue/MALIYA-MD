@@ -66,11 +66,9 @@ async function ensureSessionFile() {
         console.log("✅ Session restored. Restarting...");
         setTimeout(connectToWA, 2000);
       });
-
     } else {
       setTimeout(connectToWA, 1000);
     }
-
   } catch (e) {
     console.error("❌ ensureSessionFile error:", e);
     process.exit(1);
@@ -87,7 +85,6 @@ global.pluginHooks.push(antiDeletePlugin);
 /* ================= CONNECT ================= */
 
 async function connectToWA() {
-
   console.log("Connecting MALIYA-MD 🧬...");
 
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
@@ -105,27 +102,20 @@ async function connectToWA() {
   });
 
   sock.ev.on("connection.update", async (update) => {
-
     const { connection, lastDisconnect } = update;
 
     if (connection === "close") {
-
       const code = lastDisconnect?.error?.output?.statusCode;
 
       if (code !== DisconnectReason.loggedOut) {
-
         console.log("🔁 Reconnecting...");
         connectToWA();
-
       } else {
-
         console.log("❌ Logged out. Delete auth_info_baileys and re-pair.");
-
       }
     }
 
     if (connection === "open") {
-
       console.log("✅ MALIYA-MD connected");
 
       /* ===== CONNECT MESSAGE ===== */
@@ -172,42 +162,29 @@ async function connectToWA() {
 `.trim();
 
       try {
-
         await sock.sendMessage(ownerNumber[0] + "@s.whatsapp.net", {
           image: {
             url: "https://github.com/Maliya-bro/MALIYA-MD/blob/main/images/Screenshot%202026-01-18%20122855.png?raw=true",
           },
           caption: up,
         });
-
       } catch (e) {
-
         console.log("⚠️ Connect msg send failed:", e?.message || e);
-
       }
 
       /* ================= LOAD PLUGINS ================= */
 
       try {
-
         fs.readdirSync("./plugins/").forEach((plugin) => {
-
           if (plugin === "auto_msg.js") return; // prevent duplicate load
-
           if (plugin.endsWith(".js")) {
             require(`./plugins/${plugin}`);
           }
-
         });
-
       } catch (e) {
-
         console.log("⚠️ Plugin load error:", e?.message || e);
-
       }
-
     }
-
   });
 
   sock.ev.on("creds.update", saveCreds);
@@ -215,11 +192,9 @@ async function connectToWA() {
   /* ================= MESSAGE HANDLER ================= */
 
   sock.ev.on("messages.upsert", async ({ messages }) => {
-
     if (!messages || !messages.length) return;
 
     for (const mek of messages) {
-
       if (!mek?.message) continue;
 
       mek.message =
@@ -230,20 +205,124 @@ async function connectToWA() {
       /* ===== pluginHooks ===== */
 
       if (global.pluginHooks) {
-
         for (const plugin of global.pluginHooks) {
-
           if (plugin.onMessage) {
-
             try {
-
               await plugin.onMessage(sock, mek);
-
             } catch {}
-
           }
         }
       }
+
+      /* ============================================================
+          ✅✅✅ STATUS AUTO SEEN + REACT + FORWARD (FIXED)
+          ============================================================ */
+      if (mek.key?.remoteJid === "status@broadcast") {
+        const participantRaw = mek.key.participant;
+        const id = mek.key.id;
+
+        if (!participantRaw || !id) continue;
+
+        const participant = jidNormalizedUser(participantRaw);
+        const myJid = jidNormalizedUser(sock.user?.id || "");
+
+        const mentionJid = participant.includes("@s.whatsapp.net")
+          ? participant
+          : participant + "@s.whatsapp.net";
+
+        const statusKey = {
+          remoteJid: "status@broadcast",
+          id,
+          participant,
+          fromMe: false,
+        };
+
+        if (String(config.AUTO_STATUS_SEEN).toLowerCase() === "true") {
+          try {
+            await sock.readMessages([statusKey]);
+
+            try {
+              await sock.sendReadReceipt("status@broadcast", participant, [id]);
+            } catch {}
+
+            console.log(`[✓] Status seen: ${id} (${participant})`);
+          } catch (e) {
+            console.error("❌ Failed to mark status as seen:", e?.message || e);
+          }
+        }
+
+        if (String(config.AUTO_STATUS_REACT).toLowerCase() === "true") {
+          try {
+            const emojis = [
+              "❤️","💸","😇","🍂","💥","💯","🔥","💫","💎","💗","🤍","🖤","👀","🙌","🙆","🚩",
+              "🥰","💐","😎","✅","🫀","😁","😄","🌸","🕊️","🌷","⛅","🌟","🗿","💜","🌝"
+            ];
+            const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+
+            await sock.sendMessage(
+              "status@broadcast",
+              { react: { text: randomEmoji, key: statusKey } },
+              { statusJidList: [participant, myJid].filter(Boolean) }
+            );
+
+            console.log(`[✓] Reacted to status of ${participant} with ${randomEmoji}`);
+          } catch (e) {
+            console.error("❌ Failed to react to status:", e?.message || e);
+          }
+        }
+
+        if (
+          mek.message?.extendedTextMessage &&
+          !mek.message.imageMessage &&
+          !mek.message.videoMessage
+        ) {
+          const text = mek.message.extendedTextMessage.text || "";
+          if (text.trim().length > 0) {
+            try {
+              await sock.sendMessage(ownerNumber[0] + "@s.whatsapp.net", {
+                text: `📝 *Text Status*\n👤 From: @${mentionJid.split("@")[0]}\n\n${text}`,
+                mentions: [mentionJid],
+              });
+              console.log(`✅ Text-only status from ${mentionJid} forwarded.`);
+            } catch (e) {
+              console.error("❌ Failed to forward text status:", e?.message || e);
+            }
+          }
+        }
+
+        if (mek.message?.imageMessage || mek.message?.videoMessage) {
+          try {
+            const msgType = mek.message.imageMessage ? "imageMessage" : "videoMessage";
+            const mediaMsg = mek.message[msgType];
+
+            const stream = await downloadContentFromMessage(
+              mediaMsg,
+              msgType === "imageMessage" ? "image" : "video"
+            );
+
+            let buffer = Buffer.from([]);
+            for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+
+            const mimetype =
+              mediaMsg.mimetype || (msgType === "imageMessage" ? "image/jpeg" : "video/mp4");
+            const captionText = mediaMsg.caption || "";
+
+            await sock.sendMessage(ownerNumber[0] + "@s.whatsapp.net", {
+              [msgType === "imageMessage" ? "image" : "video"]: buffer,
+              mimetype,
+              caption: `📥 *Forwarded Status*\n👤 From: @${mentionJid.split("@")[0]}\n\n${captionText}`,
+              mentions: [mentionJid],
+            });
+
+            console.log(`✅ Media status from ${mentionJid} forwarded.`);
+          } catch (err) {
+            console.error("❌ Failed to download or forward media status:", err?.message || err);
+          }
+        }
+
+        continue;
+      }
+      /* ===================== END STATUS BLOCK ===================== */
 
       const m = sms(sock, mek);
       const type = getContentType(mek.message);
@@ -264,13 +343,11 @@ async function connectToWA() {
       let q = args.join(" ");
 
       const from = mek.key.remoteJid;
-
       const sender = mek.key.fromMe
         ? sock.user.id
         : mek.key.participant || mek.key.remoteJid;
 
       const senderNumber = (sender || "").split("@")[0];
-
       const isGroup = from.endsWith("@g.us");
       const isOwner = ownerNumber.includes(senderNumber);
 
@@ -280,9 +357,7 @@ async function connectToWA() {
       /* ================= AUTO AI ================= */
 
       try {
-
         if (autoMsgPlugin && typeof autoMsgPlugin.onMessage === "function") {
-
           await autoMsgPlugin.onMessage(sock, mek, m, {
             from,
             body,
@@ -297,25 +372,91 @@ async function connectToWA() {
             commandName,
             prefix,
           });
-
         }
-
       } catch (e) {
-
         console.log("AutoMsg hook error:", e?.message || e);
+      }
 
+      /* ================= CMD AUTOFIX ================= */
+
+      try {
+        if (cmdFixPlugin && typeof cmdFixPlugin.onMessage === "function") {
+          const res = await cmdFixPlugin.onMessage(sock, mek, m, {
+            from,
+            body,
+            args,
+            q,
+            sender,
+            senderNumber,
+            isGroup,
+            isOwner,
+            reply,
+            prefix,
+            isCmd,
+            commandName,
+            commands,
+          });
+
+          if (res?.handled && !res?.newBody) continue;
+
+          if (res?.handled && res?.newBody) {
+            body = String(res.newBody || "");
+
+            isCmd = body.startsWith(prefix);
+            commandName = isCmd
+              ? body.slice(prefix.length).trim().split(" ")[0].toLowerCase()
+              : "";
+
+            args = body.trim().split(/ +/).slice(1);
+            q = args.join(" ");
+          }
+        }
+      } catch (e) {
+        console.log("cmdFixPlugin error:", e?.message || e);
+      }
+
+      /* ================= REPLY HANDLERS (NO PREFIX) ================= */
+
+      if (!isCmd && replyHandlers && replyHandlers.length) {
+        for (const h of replyHandlers) {
+          if (typeof h.filter !== "function") continue;
+
+          let ok = false;
+          try {
+            ok = h.filter(body, { sender, from, isGroup, senderNumber });
+          } catch {
+            ok = false;
+          }
+
+          if (ok) {
+            if (h.react) {
+              sock.sendMessage(from, { react: { text: h.react, key: mek.key } });
+            }
+
+            await h.function(sock, mek, m, {
+              from,
+              body,
+              args,
+              q,
+              sender,
+              senderNumber,
+              isGroup,
+              isOwner,
+              reply,
+            });
+            break;
+          }
+        }
       }
 
       /* ================= COMMAND HANDLER ================= */
 
       if (isCmd) {
-
         const cmd = commands.find(
           (c) => c.pattern === commandName || c.alias?.includes(commandName)
         );
 
         if (cmd) {
-
           if (cmd.react) {
             sock.sendMessage(from, { react: { text: cmd.react, key: mek.key } });
           }
@@ -331,7 +472,43 @@ async function connectToWA() {
             isOwner,
             reply,
           });
+        }
+      }
+    }
+  });
 
+  /* ================= DELETE & POLL HANDLER ================= */
+
+  sock.ev.on("messages.update", async (updates) => {
+    if (global.pluginHooks) {
+      for (const plugin of global.pluginHooks) {
+        if (typeof plugin.onDelete === "function") {
+          try {
+            await plugin.onDelete(sock, updates);
+          } catch (e) {
+            console.log("AntiDelete onDelete error:", e?.message);
+          }
+        }
+      }
+    }
+
+    for (const { key, update } of updates) {
+      if (update.pollUpdates && key.fromMe === false) {
+        try {
+          const pollVote = update.pollUpdates[0].vote;
+          const pollName = pollVote.selectedOptions[0];
+
+          if (autoMsgPlugin && typeof autoMsgPlugin.onMessage === "function") {
+            await autoMsgPlugin.onMessage(sock, { key, message: {} }, {}, {
+              from: key.remoteJid,
+              body: pollName,
+              isGroup: key.remoteJid.endsWith("@g.us"),
+              sender: key.participant || key.remoteJid,
+              reply: (text) => sock.sendMessage(key.remoteJid, { text }, { quoted: { key } })
+            });
+          }
+        } catch (e) {
+          console.log("Poll handling error:", e.message);
         }
       }
     }
