@@ -1,12 +1,12 @@
 const { cmd, commands } = require("../command");
+const { sendInteractiveMessage } = require("gifted-btns");
 
 const pendingMenu = Object.create(null);
-const numberEmojis = ["0️⃣","1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣"];
 
-/* ============ CONFIG (ඔයා කැමති නම් මෙතන change කරන්න) ============ */
+/* ============ CONFIG ============ */
 const BOT_NAME = "MALIYA-MD";
-const OWNER_NAME = "Malindu";     // owner name show කරන්න
-const PREFIX = ".";               // bot prefix show කරන්න
+const OWNER_NAME = "Malindu";
+const PREFIX = ".";
 const TZ = "Asia/Colombo";
 
 const headerImage =
@@ -19,6 +19,7 @@ function keyFor(sender, from) {
 
 function nowLK() {
   const d = new Date();
+
   const time = new Intl.DateTimeFormat("en-GB", {
     timeZone: TZ,
     hour: "2-digit",
@@ -37,13 +38,6 @@ function nowLK() {
   return { time, date };
 }
 
-function toEmojiNumber(n) {
-  return String(n)
-    .split("")
-    .map((d) => numberEmojis[d] || d)
-    .join("");
-}
-
 function buildCommandMap() {
   const map = Object.create(null);
 
@@ -53,10 +47,8 @@ function buildCommandMap() {
     (map[cat] ||= []).push(c);
   }
 
-  // categories A-Z
   const categories = Object.keys(map).sort((a, b) => a.localeCompare(b));
 
-  // commands inside each category A-Z (by pattern)
   for (const cat of categories) {
     map[cat].sort((a, b) => (a.pattern || "").localeCompare(b.pattern || ""));
   }
@@ -64,39 +56,32 @@ function buildCommandMap() {
   return { map, categories };
 }
 
-function menuHeader() {
+function menuHeader(pushname = "User") {
   const { time, date } = nowLK();
 
-  return (
-`*${BOT_NAME} — MAIN MENU*
-───────────────────────
-👑 Owner  : *${OWNER_NAME}*
-🎯 Prefix : *${PREFIX}*
-🕒 Time   : *${time}*
-📅 Date   : *${date}*
-───────────────────────`
-  );
+  return `👋 HI ${pushname}
+
+┏━〔 BOT'S MENU 〕━⬣
+┃ 🤖 Bot     : ${BOT_NAME}
+┃ 👤 User    : ${pushname}
+┃ 👑 Owner   : ${OWNER_NAME}
+┃ 🕒 Time    : ${time}
+┃ 📅 Date    : ${date}
+┃ ✨ Prefix  : ${PREFIX}
+┗━━━━━━━━━━━━⬣
+
+🎀 Select a Command List Below`;
 }
 
-function menuCaption(map, categories) {
-  let txt = menuHeader() + "\n";
+function categoryInfoCaption(cat, list) {
+  const pretty = `🍀.${cat.toLowerCase()}`;
+  return `*${pretty}*
+📦 Total Commands: ${list.length}
 
-  categories.forEach((cat, i) => {
-    const idx = i + 1;
-    // 🍀.ai style
-    const pretty = `🍀.${cat.toLowerCase()}`;
-    txt += `┃ ${toEmojiNumber(idx)} *${pretty}* (${map[cat].length})\n`;
-  });
-
-  txt += `───────────────────────\n`;
-  txt += `Reply with a number *1-${categories.length}*\n`;
-  txt += `Reply *0* = Back (menu)\n`;
-  txt += `Reply *cancel* = Close\n`;
-
-  return txt;
+Select a role below to view commands.`;
 }
 
-function categoryCaption(cat, list) {
+function commandListCaption(cat, list) {
   const pretty = `🍀.${cat.toLowerCase()}`;
   let txt = `*${pretty} — COMMANDS*\n`;
   txt += `───────────────────────\n\n`;
@@ -111,14 +96,44 @@ function categoryCaption(cat, list) {
   });
 
   txt += `───────────────────────\n`;
-  txt += `Total Commands: ${list.length}\n`;
-  txt += `Reply *0* = Back (menu)\n`;
-  txt += `Reply *cancel* = Close\n`;
+  txt += `Total Commands: ${list.length}`;
 
   return txt;
 }
 
-/* ================= COMMAND: .menu ================= */
+function makeCategoryRows(map, categories) {
+  return categories.map((cat) => ({
+    header: "📂",
+    title: `${cat} MENU`,
+    description: `${map[cat].length} commands available`,
+    id: `menu_cat:${cat}`,
+  }));
+}
+
+function makeRoleRows(cat) {
+  return [
+    {
+      header: "📜",
+      title: `${cat} Commands`,
+      description: "View all commands with aliases and descriptions",
+      id: `menu_view:${cat}`,
+    },
+    {
+      header: "🏠",
+      title: "Back To Main Menu",
+      description: "Return to the main menu",
+      id: `menu_back:main`,
+    },
+    {
+      header: "❌",
+      title: "Close Menu",
+      description: "Close this menu session",
+      id: `menu_close:now`,
+    },
+  ];
+}
+
+/* ================= MAIN MENU COMMAND ================= */
 cmd(
   {
     pattern: "menu",
@@ -127,93 +142,227 @@ cmd(
     category: "main",
     filename: __filename,
   },
-  async (sock, mek, m, { from, sender, reply }) => {
-    await sock.sendMessage(from, { react: { text: "📜", key: mek.key } });
+  async (sock, mek, m, { from, sender, pushname, reply }) => {
+    try {
+      await sock.sendMessage(from, { react: { text: "📜", key: mek.key } });
 
-    const { map, categories } = buildCommandMap();
-    if (!categories.length) return reply("❌ No commands found!");
+      const { map, categories } = buildCommandMap();
+      if (!categories.length) return reply("❌ No commands found!");
 
-    const k = keyFor(sender, from);
-    pendingMenu[k] = { step: "category", map, categories, timestamp: Date.now() };
+      const k = keyFor(sender, from);
+      pendingMenu[k] = {
+        step: "main",
+        map,
+        categories,
+        timestamp: Date.now(),
+      };
 
-    await sock.sendMessage(
-      from,
-      { image: { url: headerImage }, caption: menuCaption(map, categories) },
-      { quoted: mek }
-    );
+      await sendInteractiveMessage(
+        sock,
+        from,
+        {
+          image: { url: headerImage },
+          text: menuHeader(pushname || "User"),
+          footer: `${BOT_NAME} | Interactive Menu`,
+          interactiveButtons: [
+            {
+              name: "single_select",
+              buttonParamsJson: JSON.stringify({
+                title: "Click Here ↯",
+                sections: [
+                  {
+                    title: "Command Categories",
+                    rows: makeCategoryRows(map, categories),
+                  },
+                ],
+              }),
+            },
+            {
+              name: "cta_url",
+              buttonParamsJson: JSON.stringify({
+                display_text: "🌐 Official Website",
+                url: "https://example.com",
+              }),
+            },
+            {
+              name: "cta_copy",
+              buttonParamsJson: JSON.stringify({
+                display_text: "📋 Copy Owner Number",
+                copy_code: "+94770000000",
+              }),
+            },
+          ],
+        },
+        { quoted: mek }
+      );
+    } catch (e) {
+      console.log("MENU ERROR:", e);
+      reply("❌ Menu eka send karanna බැරි වුණා.");
+    }
   }
 );
 
-/* ================= REPLIES: 1/2/3 , 0 , cancel ================= */
+/* ================= HANDLE MENU BUTTON IDS ================= */
 cmd(
   {
-    filter: (text, { sender, from }) => {
-      const k = keyFor(sender, from);
-      if (!pendingMenu[k]) return false;
-
-      const t = (text || "").trim().toLowerCase();
-      if (t === "cancel") return true;
-      if (!/^\d+$/.test(t)) return false;
-
-      const n = parseInt(t, 10);
-      return n === 0 || (n > 0 && n <= pendingMenu[k].categories.length);
+    filter: (text) => {
+      const t = (text || "").trim();
+      return (
+        t.startsWith("menu_cat:") ||
+        t.startsWith("menu_view:") ||
+        t === "menu_back:main" ||
+        t === "menu_close:now"
+      );
     },
     dontAddCommandList: true,
     filename: __filename,
   },
-  async (sock, mek, m, { body, sender, from, reply }) => {
-    const k = keyFor(sender, from);
-    const state = pendingMenu[k];
-    if (!state) return;
+  async (sock, mek, m, { body, from, sender, pushname, reply }) => {
+    try {
+      const k = keyFor(sender, from);
+      const state = pendingMenu[k];
 
-    const t = (body || "").trim().toLowerCase();
+      if (!state) {
+        return reply("⚠️ Menu session expired. Please send *.menu* again.");
+      }
 
-    // close
-    if (t === "cancel") {
-      delete pendingMenu[k];
-      return reply("✅ Menu closed.");
+      const text = (body || "").trim();
+
+      /* ===== CLOSE ===== */
+      if (text === "menu_close:now") {
+        delete pendingMenu[k];
+        await sock.sendMessage(from, { react: { text: "✅", key: mek.key } });
+        return reply("✅ Menu closed.");
+      }
+
+      /* ===== BACK TO MAIN ===== */
+      if (text === "menu_back:main") {
+        state.step = "main";
+        state.timestamp = Date.now();
+
+        await sock.sendMessage(from, { react: { text: "↩️", key: mek.key } });
+
+        return sendInteractiveMessage(
+          sock,
+          from,
+          {
+            image: { url: headerImage },
+            text: menuHeader(pushname || "User"),
+            footer: `${BOT_NAME} | Interactive Menu`,
+            interactiveButtons: [
+              {
+                name: "single_select",
+                buttonParamsJson: JSON.stringify({
+                  title: "Click Here ↯",
+                  sections: [
+                    {
+                      title: "Command Categories",
+                      rows: makeCategoryRows(state.map, state.categories),
+                    },
+                  ],
+                }),
+              },
+              {
+                name: "cta_url",
+                buttonParamsJson: JSON.stringify({
+                  display_text: "🌐 Official Website",
+                  url: "https://example.com",
+                }),
+              },
+              {
+                name: "cta_copy",
+                buttonParamsJson: JSON.stringify({
+                  display_text: "📋 Copy Owner Number",
+                  copy_code: "+94770000000",
+                }),
+              },
+            ],
+          },
+          { quoted: mek }
+        );
+      }
+
+      /* ===== CATEGORY SELECT ===== */
+      if (text.startsWith("menu_cat:")) {
+        const cat = text.split("menu_cat:")[1];
+        const list = state.map[cat] || [];
+
+        if (!list.length) {
+          return reply("❌ No commands found in this category.");
+        }
+
+        state.step = "category";
+        state.selectedCategory = cat;
+        state.timestamp = Date.now();
+
+        await sock.sendMessage(from, { react: { text: "✅", key: mek.key } });
+
+        return sendInteractiveMessage(
+          sock,
+          from,
+          {
+            image: { url: headerImage },
+            text: categoryInfoCaption(cat, list),
+            footer: `${BOT_NAME} | ${cat} MENU`,
+            interactiveButtons: [
+              {
+                name: "single_select",
+                buttonParamsJson: JSON.stringify({
+                  title: `${cat} Roles ↯`,
+                  sections: [
+                    {
+                      title: `${cat} Options`,
+                      rows: makeRoleRows(cat),
+                    },
+                  ],
+                }),
+              },
+            ],
+          },
+          { quoted: mek }
+        );
+      }
+
+      /* ===== VIEW CATEGORY COMMANDS ===== */
+      if (text.startsWith("menu_view:")) {
+        const cat = text.split("menu_view:")[1];
+        const list = state.map[cat] || [];
+
+        if (!list.length) {
+          return reply("❌ No commands found in this category.");
+        }
+
+        state.step = "command_view";
+        state.selectedCategory = cat;
+        state.timestamp = Date.now();
+
+        await sock.sendMessage(from, { react: { text: "📂", key: mek.key } });
+
+        return sock.sendMessage(
+          from,
+          {
+            image: { url: headerImage },
+            caption: commandListCaption(cat, list),
+          },
+          { quoted: mek }
+        );
+      }
+    } catch (e) {
+      console.log("MENU ACTION ERROR:", e);
+      reply("❌ Menu action eka process karanna බැරි වුණා.");
     }
-
-    const n = parseInt(t, 10);
-
-    // back -> show menu again
-    if (n === 0) {
-      state.step = "category";
-      state.timestamp = Date.now();
-
-      await sock.sendMessage(from, { react: { text: "↩️", key: mek.key } });
-
-      return sock.sendMessage(
-        from,
-        { image: { url: headerImage }, caption: menuCaption(state.map, state.categories) },
-        { quoted: mek }
-      );
-    }
-
-    // show selected category commands
-    await sock.sendMessage(from, { react: { text: "✅", key: mek.key } });
-
-    const idx = n - 1;
-    const cat = state.categories[idx];
-    const list = state.map[cat] || [];
-
-    state.step = "category_view";
-    state.timestamp = Date.now();
-
-    await sock.sendMessage(
-      from,
-      { image: { url: headerImage }, caption: categoryCaption(cat, list) },
-      { quoted: mek }
-    );
   }
 );
 
 /* ================= AUTO CLEANUP ================= */
 setInterval(() => {
   const now = Date.now();
-  const timeout = 10 * 60 * 1000; // 10 min
+  const timeout = 10 * 60 * 1000;
+
   for (const k of Object.keys(pendingMenu)) {
-    if (now - pendingMenu[k].timestamp > timeout) delete pendingMenu[k];
+    if (now - pendingMenu[k].timestamp > timeout) {
+      delete pendingMenu[k];
+    }
   }
 }, 60 * 1000);
 
