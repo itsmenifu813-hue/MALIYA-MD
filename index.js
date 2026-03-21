@@ -63,7 +63,7 @@ const app = express();
 const port = process.env.PORT || 8000;
 
 const prefix = ".";
-const ownerNumber = [String(config.BOT_OWNER || "94702135392")];
+const ownerNumber = [String(config.BOT_OWNER || "94702135392").replace(/\D/g, "")];
 const authDir = path.join(__dirname, "/auth_info_baileys/");
 const credsPath = path.join(authDir, "creds.json");
 
@@ -354,8 +354,8 @@ async function connectToWA() {
         if (readSettings().auto_status_react === true) {
           try {
             const emojis = [
-              "❤️","💸","😇","🍂","💥","💯","🔥","💫","💎","💗","🤍","🖤","👀","🙌","🙆","🚩",
-              "🥰","💐","😎","✅","🫀","😁","😄","🌸","🕊️","🌷","⛅","🌟","🗿","💜","🌝"
+              "❤️", "💸", "😇", "🍂", "💥", "💯", "🔥", "💫", "💎", "💗", "🤍", "🖤", "👀", "🙌", "🙆", "🚩",
+              "🥰", "💐", "😎", "✅", "🫀", "😁", "😄", "🌸", "🕊️", "🌷", "⛅", "🌟", "🗿", "💜", "🌝"
             ];
             const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
 
@@ -424,7 +424,6 @@ async function connectToWA() {
       }
 
       const m = sms(sock, mek);
-      const type = getContentType(mek.message);
 
       let body = getBodyFromMessage(mek.message);
       body = String(body || "").trim();
@@ -442,7 +441,8 @@ async function connectToWA() {
         ? sock.user.id
         : mek.key.participant || mek.key.remoteJid;
 
-      const senderNumber = (sender || "").split("@")[0];
+      const rawSenderNumber = (sender || "").split("@")[0];
+      const senderNumber = rawSenderNumber.split(":")[0].replace(/\D/g, "");
       const isGroup = from.endsWith("@g.us");
       const isOwner = ownerNumber.includes(senderNumber);
 
@@ -648,6 +648,8 @@ async function connectToWA() {
               body: pollName,
               isGroup: key.remoteJid.endsWith("@g.us"),
               sender: key.participant || key.remoteJid,
+              senderNumber: String((key.participant || key.remoteJid || "").split("@")[0]).split(":")[0].replace(/\D/g, ""),
+              isOwner: false,
               reply: (text) => sock.sendMessage(key.remoteJid, { text }, { quoted: { key } })
             });
           }
