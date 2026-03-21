@@ -164,14 +164,14 @@ function buildAudioDetails(video) {
 
   return `🎵 *${title}*
 
-╭━━━〔 📄 AUDIO DETAILS 〕━━━╮
+╭━━━〔 📄 SONG DETAILS 〕━━━╮
 👤 *Channel:* ${channel}
 🆔 *Video ID:* ${videoId}
 ⏱️ *Duration:* ${duration}
 👀 *Views:* ${views}
 📅 *Uploaded:* ${uploaded}
 🔗 *Link:* ${url}
-╰━━━━━━━━━━━━━━━━━━━━━━━╯
+╰━━━━━━━━━━━━━━━╯
 
 ${generateProgressBar(duration)}`;
 }
@@ -190,7 +190,7 @@ function buildFinalAudioCaption(video, mode, sizeMB) {
 👀 *Views:* ${formatViews(video.views)}
 📅 *Uploaded:* ${video.ago || "Unknown"}
 💾 *Size:* ${sizeMB.toFixed(2)} MB
-╰━━━━━━━━━━━━━━━━━╯`;
+╰━━━━━━━━━━━━━╯`;
 }
 
 async function getYoutube(query) {
