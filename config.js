@@ -37,7 +37,7 @@ module.exports = {
  ALIVE_MSG:
     process.env.ALIVE_MSG || "*Hello👋 MALIYA-MD Is Alive Now!😍😍😍.*",
 
-  BOT_OWNER: process.env.BOT_OWNER || "94702135392", // Replace with your whtasapp number
+  BOT_OWNER: process.env.BOT_OWNER || "94722139392", // Replace with your whtasapp number
 
   AUTO_STATUS_SEEN: process.env.AUTO_STATUS_SEEN || "true",
 
